@@ -116,8 +116,8 @@ int generate_key(void)
 	LOG_INF("ChachaPoly key generated successfully!");
 
 /* Test Kim */
-	// psa_export_key(key_handle, myKey, 256, &myKeySize );
-	// printk("mykey size : %d\n", myKeySize);
+	psa_export_key(key_handle, myKey, 256, &myKeySize );
+	printk("mykey size : %d\n", myKeySize);
 /* #######*/
 
 	return APP_SUCCESS;
