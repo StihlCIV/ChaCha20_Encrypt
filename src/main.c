@@ -1,7 +1,8 @@
 /*
- * Copyright (c) 2021 Nordic Semiconductor ASA
+ * Copyright (c) 2019-2022, Arm Limited. All rights reserved.
  *
- * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
  */
 
 #include <zephyr/kernel.h>
@@ -16,49 +17,43 @@
 #include <tfm_ns_interface.h>
 #endif
 
-#define APP_SUCCESS		(0)
-#define APP_ERROR		(-1)
-#define APP_SUCCESS_MESSAGE "Example finished successfully!"
+#define APP_SUCCESS (0)
+#define APP_ERROR (-1)
 #define APP_ERROR_MESSAGE "Example exited with error!"
 
-#define PRINT_HEX(p_label, p_text, len)\
-	({\
-		LOG_INF("---- %s (len: %u): ----", p_label, len);\
-		LOG_HEXDUMP_INF(p_text, len, "Content:");\
-		LOG_INF("---- %s end  ----", p_label);\
+#define PRINT_HEX(p_label, p_text, len)                           \
+	({                                                        \
+		LOG_INF("---- %s (len: %u): ----", p_label, len); \
+		LOG_HEXDUMP_INF(p_text, len, "Content:");         \
+		LOG_INF("---- %s end  ----", p_label);            \
 	})
 
 LOG_MODULE_REGISTER(chachapoly, LOG_LEVEL_DBG);
 
-/* ====================================================================== */
-/*		Global variables/defines for the Chacha20-Poly1305 example		  */
+static const uint8_t chacha20_testPlaintext[] = {
+    1,2,3,4,5,6,7,8,9,10,11,12};
 
-#define NRF_CRYPTO_EXAMPLE_CHACHAPOLY_TEXT_SIZE (100)
-#define NRF_CRYPTO_EXAMPLE_CHACHAPOLY_ADDITIONAL_SIZE (35)
-#define NRF_CRYPTO_EXAMPLE_CHACHAPOLY_NONCE_SIZE (12)
-#define NRF_CRYPTO_EXAMPLE_CHACHAPOLY_TAG_SIZE (16)
+/* To hold intermediate results in both Chacha20 and Chacha20-Poly1305 */
+static uint8_t chacha20_testCiphertext[sizeof(chacha20_testPlaintext)] = {0};
+static uint8_t chacha20_testDecryptedtext[sizeof(chacha20_testPlaintext)] = {0};
 
-/* Chacha20-Poly1305 sample Nonce, DO NOT USE IN PRODUCTION */
-static uint8_t m_nonce[NRF_CRYPTO_EXAMPLE_CHACHAPOLY_NONCE_SIZE];
+static const uint8_t chacha20_testKey[] = {
+    0xe3, 0x64, 0x7a, 0x29, 0xde, 0xd3, 0x15, 0x28, 
+	0xef, 0x56, 0xba, 0xc7, 0x0c, 0x0d, 0x0e, 0x0f, 
+	0x10, 0x11, 0x12, 0x13, 0x14, 0x1a, 0x1b, 0x1c,
+	0x00, 0x00, 0x00, 0x00, 0x09, 0x12, 0x13, 0x13};
 
-/* Below text is used as plaintext for encryption/decryption */
-static uint8_t m_plain_text[NRF_CRYPTO_EXAMPLE_CHACHAPOLY_TEXT_SIZE] = {
-	"Example string to demonstrate basic usage of Chacha20-Poly1305."
-};
+// Nonce must be 12 at least. 
+static const uint8_t chacha20_testNonce[] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00};
 
-/* Below text is used as additional data for authentication */
-static uint8_t
-	m_additional_data[NRF_CRYPTO_EXAMPLE_CHACHAPOLY_ADDITIONAL_SIZE] = {
-		"Example string of additional data"
-	};
-
-static uint8_t m_encrypted_text[NRF_CRYPTO_EXAMPLE_CHACHAPOLY_TEXT_SIZE +
-				NRF_CRYPTO_EXAMPLE_CHACHAPOLY_TAG_SIZE];
-
-static uint8_t m_decrypted_text[NRF_CRYPTO_EXAMPLE_CHACHAPOLY_TEXT_SIZE];
-
-psa_key_handle_t key_handle;
-/* ====================================================================== */
+/* The initial counter of the Chacha20 RFC7539 test vectors is 1, while the PSA
+ * APIs assume it to be zero. This means that this expected ciphertext is not
+ * the same as the one presented in the RFC
+ */
+// static const uint8_t chacha20_testCiphertext_expected[] = {
+//     0xe3, 0x64, 0x7a, 0x29, 0xde, 0xd3, 0x15, 0x28, 0xef, 0x56, 0xba, 0xc7};
 
 int crypto_init(void)
 {
@@ -72,170 +67,262 @@ int crypto_init(void)
 	return APP_SUCCESS;
 }
 
-int crypto_finish(void)
+static inline int compare_buffers(const uint8_t *p1,
+				  const uint8_t *p2,
+				  size_t comp_size)
 {
-	psa_status_t status;
-
-	/* Destroy the key handle */
-	status = psa_destroy_key(key_handle);
-	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_destroy_key failed! (Error: %d)", status);
-		return APP_ERROR;
-	}
-
-	return APP_SUCCESS;
+	return memcmp(p1, p2, comp_size);
 }
 
-static uint8_t myKey[100];
-static size_t myKeySize = 0;
-
-int generate_key(void)
+int psa_cipher_rfc7539_test(void)
 {
-	psa_status_t status;
-	psa_key_attributes_t key_attributes = PSA_KEY_ATTRIBUTES_INIT;
+	psa_cipher_operation_t handle = psa_cipher_operation_init();
+	psa_cipher_operation_t handle_dec = psa_cipher_operation_init();
+	psa_status_t status = PSA_SUCCESS;
+	psa_key_handle_t key_handle = 0;
+	psa_key_attributes_t key_attributes = psa_key_attributes_init();
+	const psa_algorithm_t alg = PSA_ALG_STREAM_CIPHER;
+	bool bAbortDecryption = false;
+	/* Variables required during multipart update */
+	size_t data_left = sizeof(chacha20_testPlaintext);
+	size_t lengths[] = {12};
+	size_t start_idx = 0;
+	size_t output_length = 0;
+	size_t total_output_length = 0;
+	int comp_result;
+	int ret = APP_ERROR;
 
-	/* Crypto settings for Chacha20-Poly1305 */
-	psa_set_key_usage_flags(&key_attributes, PSA_KEY_USAGE_ENCRYPT | PSA_KEY_USAGE_DECRYPT | PSA_KEY_USAGE_EXPORT);
+	/* Setup the key policy */
+	psa_set_key_usage_flags(&key_attributes, PSA_KEY_USAGE_ENCRYPT | PSA_KEY_USAGE_DECRYPT);
 	psa_set_key_lifetime(&key_attributes, PSA_KEY_LIFETIME_VOLATILE);
-	psa_set_key_algorithm(&key_attributes, PSA_ALG_CHACHA20_POLY1305);
+	psa_set_key_algorithm(&key_attributes, PSA_ALG_STREAM_CIPHER);
 	psa_set_key_type(&key_attributes, PSA_KEY_TYPE_CHACHA20);
 	psa_set_key_bits(&key_attributes, 256);
 
-	/* Generate a random key. The key is not exposed to the application,
-	 * we can use it to encrypt/decrypt using the key handle
-	 */
-	status = psa_generate_key(&key_attributes, &key_handle);
-	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_generate_key failed! (Error: %d)", status);
+    	status = psa_import_key(&key_attributes, chacha20_testKey,
+                        	sizeof(chacha20_testKey), &key_handle);
+	if (status != PSA_SUCCESS)
+	{
+		LOG_INF("Error importing a key");
 		return APP_ERROR;
 	}
 
-	/* After the key handle is acquired the attributes are not needed */
-	psa_reset_key_attributes(&key_attributes);
-
-	LOG_INF("ChachaPoly key generated successfully!");
-
-/* Test Kim */
-	psa_export_key(key_handle, myKey, 256, &myKeySize );
-	printk("mykey size : %d\n", myKeySize);
-/* #######*/
-
-	return APP_SUCCESS;
-}
-
-int encrypt_chachapoly(void)
-{
-	uint32_t output_len;
-	psa_status_t status;
-
-	LOG_INF("Encrypting using Chacha20-Poly1305...");
-
-	/* Generate a random nonce */
-	status = psa_generate_random(m_nonce, NRF_CRYPTO_EXAMPLE_CHACHAPOLY_NONCE_SIZE);
-	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_generate_random failed! (Error: %d)", status);
-		return APP_ERROR;
+	/* Setup the encryption object */
+	status = psa_cipher_encrypt_setup(&handle, key_handle, alg);
+	if (status != PSA_SUCCESS)
+	{
+		LOG_INF("Encryption setup shouldn't fail");
+		goto destroy_key;
 	}
 
-	/* Perform the authenticated encryption */
-	status = psa_aead_encrypt(key_handle,
-				  PSA_ALG_CHACHA20_POLY1305,
-				  m_nonce,
-				  sizeof(m_nonce),
-				  m_additional_data,
-				  sizeof(m_additional_data),
-				  m_plain_text,
-				  sizeof(m_plain_text),
-				  m_encrypted_text,
-				  sizeof(m_encrypted_text),
-				  &output_len);
-	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_aead_encrypt failed! (Error: %d)", status);
-		return APP_ERROR;
+	/* Set the IV */
+	status = psa_cipher_set_iv(&handle,
+				   chacha20_testNonce, sizeof(chacha20_testNonce));
+	if (status != PSA_SUCCESS)
+	{
+		LOG_INF("Error setting the IV on the cipher operation object");
+		goto abort;
 	}
 
-	LOG_INF("Encryption successful!");
-	PRINT_HEX("Nonce", m_nonce, sizeof(m_nonce));
-	PRINT_HEX("Plaintext", m_plain_text, sizeof(m_plain_text));
-	PRINT_HEX("Additional data", m_additional_data, sizeof(m_additional_data));
-	PRINT_HEX("Encrypted text", m_encrypted_text, sizeof(m_encrypted_text));
+	for (int i = 0; i < sizeof(lengths) / sizeof(size_t); i++)
+	{
+		/* Encrypt one chunk of information */
+		status = psa_cipher_update(
+		    &handle,
+		    &chacha20_testPlaintext[start_idx],
+		    lengths[i],
+		    &chacha20_testCiphertext[total_output_length],
+		    sizeof(chacha20_testCiphertext) - total_output_length,
+		    &output_length);
 
+		if (status != PSA_SUCCESS)
+		{
+			LOG_INF("Error encrypting one chunk of information");
+			goto abort;
+		}
 
-	return APP_SUCCESS;
-}
+		if (output_length != lengths[i])
+		{
+			LOG_INF("Expected encrypted length is different from expected");
+			goto abort;
+		}
 
-int decrypt_chachapoly(void)
-{
-	uint32_t output_len;
-	psa_status_t status;
+		data_left -= lengths[i];
+		total_output_length += output_length;
 
-	LOG_INF("Decrypting using Chacha20-Poly1305 ...");
-
-	/* Decrypt and authenticate the encrypted data */
-	status = psa_aead_decrypt(key_handle,
-				  PSA_ALG_CHACHA20_POLY1305,
-				  m_nonce,
-				  sizeof(m_nonce),
-				  m_additional_data,
-				  sizeof(m_additional_data),
-				  m_encrypted_text,
-				  sizeof(m_encrypted_text),
-				  m_decrypted_text,
-				  sizeof(m_decrypted_text),
-				  &output_len);
-	if (status != PSA_SUCCESS) {
-		LOG_INF("psa_aead_decrypt failed! (Error: %d)", status);
-		return APP_ERROR;
+		start_idx += lengths[i];
 	}
 
-	PRINT_HEX("Decrypted text", m_decrypted_text, sizeof(m_decrypted_text));
+	/* Finalise the cipher operation */
+	status = psa_cipher_finish(
+	    &handle,
+	    &chacha20_testCiphertext[total_output_length],
+	    sizeof(chacha20_testCiphertext) - total_output_length,
+	    &output_length);
 
-	/* Check the validity of the decryption */
-	if (memcmp(m_decrypted_text, m_plain_text, NRF_CRYPTO_EXAMPLE_CHACHAPOLY_TEXT_SIZE) != 0) {
-		LOG_INF("Error: Decrypted text doesn't match the plaintext");
-		return APP_ERROR;
+	if (status != PSA_SUCCESS)
+	{
+		LOG_INF("Error finalising the cipher operation");
+		goto abort;
 	}
 
-	LOG_INF("Decryption and authentication was successful!");
+	if (output_length != 0)
+	{
+		LOG_INF("Un-padded mode final output length unexpected");
+		goto abort;
+	}
 
-	return APP_SUCCESS;
+	/* Add the last output produced, it might be encrypted padding */
+	total_output_length += output_length;
+
+	/* Compare encrypted data produced with single-shot and multipart APIs */
+	// comp_result = compare_buffers(chacha20_testCiphertext_expected,
+	// 			      chacha20_testCiphertext,
+	// 			      total_output_length);
+	// if (comp_result != 0)
+	// {
+	// 	LOG_INF("Single-shot crypt doesn't match with multipart crypt");
+	// 	goto destroy_key;
+	// }
+
+	/* Setup the decryption object */
+	status = psa_cipher_decrypt_setup(&handle_dec, key_handle, alg);
+	if (status != PSA_SUCCESS)
+	{
+		LOG_INF("Error setting up cipher operation object");
+		goto destroy_key;
+	}
+
+	/* From now on, in case of failure we want to abort the decryption op */
+	bAbortDecryption = true;
+
+	/* Set the IV for decryption */
+	status = psa_cipher_set_iv(&handle_dec,
+				   chacha20_testNonce, sizeof(chacha20_testNonce));
+	if (status != PSA_SUCCESS)
+	{
+		LOG_INF("Error setting the IV for decryption");
+		goto abort;
+	}
+
+	/* Decrypt - total_output_length considers encrypted padding */
+	data_left = total_output_length;
+	/* Update in different chunks of plainText */
+	// lengths[0] = 14;
+	// lengths[1] = 70;
+	// lengths[2] = 30;
+	start_idx = 0;
+	output_length = 0;
+	total_output_length = 0;
+	for (int i = 0; i < sizeof(lengths) / sizeof(size_t); i++)
+	{
+		status = psa_cipher_update(
+		    &handle_dec,
+		    &chacha20_testCiphertext[start_idx],
+		    lengths[i],
+		    &chacha20_testDecryptedtext[total_output_length],
+		    sizeof(chacha20_testDecryptedtext) - total_output_length,
+		    &output_length);
+
+		if (status != PSA_SUCCESS)
+		{
+			LOG_INF("Error decrypting one chunk of information");
+			goto abort;
+		}
+
+		if (output_length != lengths[i])
+		{
+			LOG_INF("Expected encrypted length is different from expected");
+			goto abort;
+		}
+
+		data_left -= lengths[i];
+		total_output_length += output_length;
+
+		start_idx += lengths[i];
+	}
+
+	/* Finalise the cipher operation for decryption */
+	status = psa_cipher_finish(
+	    &handle_dec,
+	    &chacha20_testDecryptedtext[total_output_length],
+	    sizeof(chacha20_testDecryptedtext) - total_output_length,
+	    &output_length);
+
+	if (status != PSA_SUCCESS)
+	{
+		LOG_INF("Error finalising the cipher operation");
+		goto abort;
+	}
+
+	/* Finalize the count of output which has been produced */
+	total_output_length += output_length;
+
+	/* Check that the decrypted length is equal to the original length */
+	if (total_output_length != sizeof(chacha20_testPlaintext))
+	{
+		LOG_INF("After finalising, unexpected decrypted length");
+		goto destroy_key;
+	}
+
+	/* Check that the plain text matches the decrypted data */
+	comp_result = compare_buffers(chacha20_testPlaintext,
+				      chacha20_testDecryptedtext,
+				      sizeof(chacha20_testPlaintext));
+	if (comp_result != 0)
+	{
+		LOG_INF("Decrypted data doesn't match with plain text");
+	}
+	else
+	{
+		ret = APP_SUCCESS;
+	}
+
+	/* Go directly to the destroy_key label at this point */
+	goto destroy_key;
+
+abort:
+	/* Abort the operation */
+	status = bAbortDecryption ? psa_cipher_abort(&handle_dec) : psa_cipher_abort(&handle);
+	if (status != PSA_SUCCESS)
+	{
+		LOG_INF("Error aborting the operation");
+	}
+destroy_key:
+	/* Destroy the key */
+	status = psa_destroy_key(key_handle);
+	if (status != PSA_SUCCESS)
+	{
+		LOG_INF("Error destroying a key");
+	}
+
+	return ret;
 }
 
 int main(void)
 {
 	int status;
 
-	LOG_INF("Starting ChachaPoly example...");
+	LOG_INF("Starting Chacha example...");
 	status = crypto_init();
-	if (status != APP_SUCCESS) {
+	if (status != APP_SUCCESS)
+	{
 		LOG_INF(APP_ERROR_MESSAGE);
 		return APP_ERROR;
 	}
 
-	status = generate_key();
-	if (status != APP_SUCCESS) {
+	status = psa_cipher_rfc7539_test();
+	if (status != APP_SUCCESS)
+	{
 		LOG_INF(APP_ERROR_MESSAGE);
 		return APP_ERROR;
 	}
 
-	status = encrypt_chachapoly();
-	if (status != APP_SUCCESS) {
-		LOG_INF(APP_ERROR_MESSAGE);
-		return APP_ERROR;
-	}
+	PRINT_HEX("Plain text", chacha20_testPlaintext, sizeof(chacha20_testPlaintext));
+	PRINT_HEX("Cipher text", chacha20_testCiphertext, sizeof(chacha20_testCiphertext));
+	PRINT_HEX("Decrypted text", chacha20_testDecryptedtext, sizeof(chacha20_testDecryptedtext));
 
-	status = decrypt_chachapoly();
-	if (status != APP_SUCCESS) {
-		LOG_INF(APP_ERROR_MESSAGE);
-		return APP_ERROR;
-	}
+	LOG_INF("Chacha example completed successfully.");
 
-	status = crypto_finish();
-	if (status != APP_SUCCESS) {
-		LOG_INF(APP_ERROR_MESSAGE);
-		return APP_ERROR;
-	}
-
-	LOG_INF(APP_SUCCESS_MESSAGE);
 	return APP_SUCCESS;
 }
