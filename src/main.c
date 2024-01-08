@@ -16,7 +16,7 @@
 
 #ifdef CONFIG_BUILD_WITH_TFM
 #include <tfm_ns_interface.h>
-#endif 
+#endif
 
 
 #define APP_SUCCESS (0)
