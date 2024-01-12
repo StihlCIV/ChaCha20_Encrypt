@@ -54,8 +54,12 @@ int crypto_init(void)
 
 
 /* */
+uint32_t time_usi64[4]= {0};
 int main(void)
 {
+	uint32_t tDiffEnc_i64 = 0;
+	uint32_t tDiffDec_i64 = 0;
+	uint32_t ind = 0;
 	int status;
 	uint8_t newSerNr_aui8[LEN_SERIAL_NO] = {0};
 	status = crypto_init();
@@ -66,23 +70,43 @@ int main(void)
 	
 	while(1)
 	{
-		status = encrSerialNo_Random(serNr_aui8, LEN_SERIAL_NO, encData_aui8, LEN_TX_DATA);
-		if (status != APP_SUCCESS)
+		ind = 0;
+		time_usi64[0] = k_uptime_get_32();
+		while(ind < 1000)
 		{
-			return APP_ERROR;
+			status = encrSerialNo_Random(serNr_aui8, LEN_SERIAL_NO, encData_aui8, LEN_TX_DATA);		
+			if (status != APP_SUCCESS)
+			{
+				printk("error \n");
+				return APP_ERROR;
+			}
+			ind++;
 		}
+		time_usi64[1] = k_uptime_get_32();
 
-		status = decrSerialNo_Random(encData_aui8, LEN_TX_DATA, newSerNr_aui8, LEN_SERIAL_NO);
-		if (status != APP_SUCCESS)
+		ind = 0;
+		time_usi64[2] = k_uptime_get_32();
+		while(ind < 1000)
 		{
-			return APP_ERROR;
+			status = decrSerialNo_Random(encData_aui8, LEN_TX_DATA, newSerNr_aui8, LEN_SERIAL_NO);
+			if (status != APP_SUCCESS)
+			{
+				printk("error \n");
+				return APP_ERROR;
+			}
+			ind++;
 		}
+		time_usi64[3] = k_uptime_get_32();
 
+		tDiffEnc_i64 = time_usi64[1] - time_usi64[0];
+		tDiffDec_i64 = time_usi64[3] - time_usi64[2];
 		// LOG_HEXDUMP_INF(p_text, len, "Content:");
 		LOG_HEXDUMP_INF(serNr_aui8, LEN_SERIAL_NO, "serial number");
 		LOG_HEXDUMP_INF(encData_aui8, LEN_TX_DATA, "Cipher text");
 		LOG_HEXDUMP_INF(newSerNr_aui8, sizeof(newSerNr_aui8), "descrypted serial");
 		printk("\n");
+		printk("20 *  encrypting of 34 bytes : %d \n", tDiffEnc_i64);
+		printk("20 *  decrypting of 34 bytes : %d \n", tDiffDec_i64);
 		k_sleep(K_MSEC(2000));
 	}
 	// LOG_INF("Chacha example completed successfully.");
