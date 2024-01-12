@@ -27,10 +27,10 @@ static uint8_t chachaNonce_aui8[LEN_NONCE] = {0x43, 0x82, 0xc3, 0x6b, 0x0a, 0x03
 											  0xEA, 0x00, 0x00, 0x00};
 
 
-static int chacha20Encryption(uint8_t *, uint8_t *, uint8_t, uint8_t );
+static int chacha20Encryption(uint8_t *, uint8_t *, uint8_t);
 
 /**/                                           
-static int chacha20Encryption(uint8_t *srcData, uint8_t *encData, uint8_t len_ui8, uint8_t keyNo_ui8)
+static int chacha20Encryption(uint8_t *srcData, uint8_t *encData, uint8_t len_ui8)
 {
 	psa_cipher_operation_t handle = psa_cipher_operation_init();
 	psa_cipher_operation_t handle_dec = psa_cipher_operation_init();
@@ -41,8 +41,6 @@ static int chacha20Encryption(uint8_t *srcData, uint8_t *encData, uint8_t len_ui
 	bool bAbortDecryption = false;
 
 	/* Variables required during multipart update */
-	// size_t data_left = LEN_ENCRYPTED;
-	// size_t start_idx = 0;
 	size_t outputLen = 0;
 	size_t total_outputLen = 0;
 	int comp_result;
@@ -56,14 +54,8 @@ static int chacha20Encryption(uint8_t *srcData, uint8_t *encData, uint8_t len_ui
 	psa_set_key_bits(&key_attributes, 256);
 
 	/* Set the Key */
-	if(keyNo_ui8 > 1)
-	{
-		status = psa_import_key(&key_attributes, wrongKey_aui8, sizeof(wrongKey_aui8), &key_handle);
-	}
-	else
-	{
-		status = psa_import_key(&key_attributes, chachaKey_aui8, sizeof(chachaKey_aui8), &key_handle);
-	}
+	status = psa_import_key(&key_attributes, chachaKey_aui8, sizeof(chachaKey_aui8), &key_handle);
+	
 	if (status != PSA_SUCCESS)
 	{
 		return APP_ERROR;
@@ -143,62 +135,97 @@ destroy_key:
  *	pSerNo_ui8: serial number, 6 bytes
  *	pEndData_ui8: 6 + 2 + 3 = 11 bytes
  */
-int encrSerialNo_Random(uint8_t* pSerNo_ui8, uint8_t sizeSer_ui8, uint8_t* pEncData_ui8, uint8_t sizeEncData_ui8)
+
+static uint8_t plainData_aui8[37];
+static uint8_t decData_aui8[37];
+int encrSerialNo_Random(uint8_t* pSerNo_ui8, uint8_t sizeSer_ui8, uint8_t* pEncData_ui8, uint8_t sizeTxData_ui8)
 {
-	uint16_t seed_ui16 = 0x1234;
-	uint16_t crcSer_ui16 = 0xFFFF;
-    uint8_t lenEncData_ui8 = sizeSer_ui8 + LEN_CRC16;
-    uint8_t lenTxData_ui8 = lenEncData_ui8 + LEN_RANDOM;
-	uint8_t plainData_aui8[lenEncData_ui8];
-	uint8_t randNonce_aui8[LEN_RANDOM];
+
     int status = -1;
-	sys_rand_get(randNonce_aui8, sizeof(randNonce_aui8));
+	uint16_t seed_ui16 = 0x1234;
+    uint8_t lenEncData_ui8 = sizeSer_ui8 + LEN_CRC;
+#ifdef CHECK_16
+	uint16_t crcSer_ui16 = 0xFFFF;
+#else
+	uint32_t crcSer_ui32 = 0xFFffffFF;
+#endif
 
-    /* compute CRC16 */
-    crcSer_ui16 = crc16_itu_t(seed_ui16, pSerNo_ui8, sizeSer_ui8);
-    memcpy(plainData_aui8, pSerNo_ui8, sizeSer_ui8);
-    plainData_aui8[sizeSer_ui8] = (uint8_t)(crcSer_ui16 >> 8);
-    plainData_aui8[sizeSer_ui8+1] = (uint8_t)(crcSer_ui16);
+	uint8_t randNonce_aui8[LEN_RANDOM];
 
-    /* create 3 random for Nonce. */
-    sys_rand_get(randNonce_aui8, LEN_RANDOM);
-    memcpy(&chachaNonce_aui8[lenEncData_ui8], randNonce_aui8, LEN_RANDOM);
+	if(sizeTxData_ui8 == (lenEncData_ui8 + LEN_RANDOM))
+	{
+		/* compute CRC16 */
+		
+	#ifdef CHECK_16
+		crcSer_ui16 = crc16_itu_t(seed_ui16, pSerNo_ui8, sizeSer_ui8);
+		memcpy(plainData_aui8, pSerNo_ui8, sizeSer_ui8);
+		plainData_aui8[sizeSer_ui8] = (uint8_t)(crcSer_ui16 >> 8);
+		plainData_aui8[sizeSer_ui8+1] = (uint8_t)(crcSer_ui16);
+	#else
+		crcSer_ui32 = crc32_ieee (pSerNo_ui8, sizeSer_ui8);
+		memcpy(plainData_aui8, pSerNo_ui8, sizeSer_ui8);
+		plainData_aui8[sizeSer_ui8] = (uint8_t)(crcSer_ui32 >> 24);
+		plainData_aui8[sizeSer_ui8+1] = (uint8_t)(crcSer_ui32 >> 16);
+		plainData_aui8[sizeSer_ui8+2] = (uint8_t)(crcSer_ui32 >> 8);
+		plainData_aui8[sizeSer_ui8+3] = (uint8_t)(crcSer_ui32);
+	#endif
+		/* create 3 random for Nonce. */
+		sys_rand_get(randNonce_aui8, LEN_RANDOM);
+		memcpy(&chachaNonce_aui8[LEN_NONCE - LEN_RANDOM], randNonce_aui8, LEN_RANDOM);
 
-    /* encrypt data */
-    status = chacha20Encryption(plainData_aui8, pEncData_ui8, lenEncData_ui8, 0);
-    if(sizeEncData_ui8 >= (lenTxData_ui8))
-    {
-        memcpy(&pEncData_ui8[lenEncData_ui8], randNonce_aui8, LEN_RANDOM);
-    }
+		/* encrypt data */
+		status = chacha20Encryption(plainData_aui8, pEncData_ui8, lenEncData_ui8);
+		
+		memcpy(&pEncData_ui8[lenEncData_ui8], randNonce_aui8, LEN_RANDOM);
+	}
 	
 	return status;
 }
+
 
 int decrSerialNo_Random(uint8_t* rxData_aui8, uint8_t sizeRxD_ui8, uint8_t* newSerNr_aui8, uint8_t sizeSer_ui8)
 {
     int status = -1;
 	uint16_t seed_ui16 = 0x1234;
-	uint16_t newCrc16_ui16 = 0x0000;
-	uint16_t crcSer_ui16 = 0xFFFF;
-    uint8_t lenEncData_ui8 = LEN_SERIAL_NO + LEN_CRC16;   // 8bytes
-    uint8_t lenTxData_ui8 = lenEncData_ui8 + LEN_RANDOM;
-	uint8_t decData_aui8[lenEncData_ui8];
 	uint8_t randNonce_aui8[LEN_RANDOM];
+    uint8_t lenEncData_ui8 = LEN_SERIAL_NO + LEN_CRC;
 
-    if(sizeRxD_ui8 >= lenTxData_ui8)   // 11 bytes at least.
+#ifdef CHECK_16
+	uint16_t newCrc16_ui16 = 0xFFFF;
+	uint16_t crcSer_ui16 = 0xFFFF;
+#else
+	uint16_t newCrc32_ui32 = 0xFFFFFFFF;
+	uint32_t crcSer_ui32 = 0xFFffffFF;
+#endif
+
+    if(sizeRxD_ui8 == (lenEncData_ui8 + LEN_RANDOM))   // 11 bytes at least.
     {
         /* get 3 bytes nonce from encData */
-        // memcpy(randNonce_aui8, &rxData_aui8[lenEncData_ui8], LEN_RANDOM);
+        memcpy(randNonce_aui8, &rxData_aui8[lenEncData_ui8], LEN_RANDOM);
+		memcpy(&chachaNonce_aui8[LEN_NONCE - LEN_RANDOM], randNonce_aui8, LEN_RANDOM);
+
         /* encrypt data */
-        status = chacha20Encryption(rxData_aui8, decData_aui8, lenEncData_ui8, 0);
+        status = chacha20Encryption(rxData_aui8, decData_aui8, lenEncData_ui8);
         
-        memcpy(&crcSer_ui16, &decData_aui8[LEN_SERIAL_NO], LEN_CRC16);         
+	#ifdef CHECK_16
+        memcpy(&crcSer_ui16, &decData_aui8[LEN_SERIAL_NO], LEN_CRC);         
         crcSer_ui16 = (uint16_t)(decData_aui8[LEN_SERIAL_NO] << 8);         
         crcSer_ui16 += (uint16_t)(decData_aui8[LEN_SERIAL_NO+1]);
         newCrc16_ui16 = crc16_itu_t(seed_ui16, decData_aui8, LEN_SERIAL_NO);
 
         if(newCrc16_ui16 == crcSer_ui16)
         {
+	#else
+        memcpy(&crcSer_ui32, &decData_aui8[LEN_SERIAL_NO], LEN_CRC);         
+        crcSer_ui32 = (uint16_t)(decData_aui8[LEN_SERIAL_NO] << 24);            
+        crcSer_ui32 += (uint16_t)(decData_aui8[LEN_SERIAL_NO+1] << 16);            
+        crcSer_ui32 += (uint16_t)(decData_aui8[LEN_SERIAL_NO+2] << 8);         
+        crcSer_ui32 += (uint16_t)(decData_aui8[LEN_SERIAL_NO+3]);
+		newCrc32_ui32 = crc32_ieee (decData_aui8, LEN_SERIAL_NO);
+
+        if(crcSer_ui32 == newCrc32_ui32)
+        {
+	#endif
             memcpy(newSerNr_aui8, decData_aui8, LEN_SERIAL_NO);
             status = 0;
         }

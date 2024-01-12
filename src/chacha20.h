@@ -3,9 +3,15 @@
 #define PROTOCOL_ID 0x16
 #define PRODUCT_ID 0x05
 
-#define LEN_SERIAL_NO 0x06
-#define LEN_CRC16 0x02
-#define LEN_ENCRYPTED (LEN_SERIAL_NO + LEN_CRC16)
+#define LEN_SERIAL_NO 32
+
+// #define CHECK_16
+#ifdef CHECK_16 
+    #define LEN_CRC 0x02
+#else
+    #define LEN_CRC 0x04
+#endif 
+#define LEN_ENCRYPTED (LEN_SERIAL_NO + LEN_CRC)
 #define LEN_RANDOM 0x03
 #define LEN_TX_DATA (LEN_ENCRYPTED + LEN_RANDOM)
 
