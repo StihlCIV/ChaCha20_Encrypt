@@ -175,7 +175,7 @@ int encrSerialNo_Random(uint8_t* pSerNo_ui8, uint8_t sizeSer_ui8, uint8_t* pEncD
 
 		/* encrypt data */
 		status = chacha20Encryption(plainData_aui8, pEncData_ui8, lenEncData_ui8);
-		
+		// status = APP_SUCCESS;
 		memcpy(&pEncData_ui8[lenEncData_ui8], randNonce_aui8, LEN_RANDOM);
 	}
 	
