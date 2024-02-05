@@ -15,10 +15,10 @@
 #define LEN_KEY 0x20
 #define LEN_NONCE 0x0C
 
-static const uint8_t wrongKey_aui8[LEN_KEY]  = {0xd3, 0x64, 0x7a, 0x29, 0xde, 0xd3, 0x15, 0x28,
-												0xef, 0x56, 0xba, 0xc7, 0x0c, 0x0d, 0x0e, 0x0f,
-												0x10, 0x11, 0x12, 0x13, 0x14, 0x1a, 0x1b, 0x1c,
-												0x00, 0x00, 0x00, 0x00, 0x09, 0x12, 0x13, 0x13};
+// static const uint8_t wrongKey_aui8[LEN_KEY]  = {0xd3, 0x64, 0x7a, 0x29, 0xde, 0xd3, 0x15, 0x28,
+// 												0xef, 0x56, 0xba, 0xc7, 0x0c, 0x0d, 0x0e, 0x0f,
+// 												0x10, 0x11, 0x12, 0x13, 0x14, 0x1a, 0x1b, 0x1c,
+// 												0x00, 0x00, 0x00, 0x00, 0x09, 0x12, 0x13, 0x13};
 static const uint8_t chachaKey_aui8[LEN_KEY] = {0xe3, 0x64, 0x7a, 0x29, 0xde, 0xd3, 0x15, 0x28,
 												0xef, 0x56, 0xba, 0xc7, 0x0c, 0x0d, 0x0e, 0x0f,
 												0x10, 0x11, 0x12, 0x13, 0x14, 0x1a, 0x1b, 0x1c,
@@ -29,8 +29,12 @@ static uint8_t chachaNonce_aui8[LEN_NONCE] = {0x43, 0x82, 0xc3, 0x6b, 0x0a, 0x03
 
 static int chacha20Encryption(uint8_t *, uint8_t *, uint8_t);
 
-/**/                                           
-static int chacha20Encryption(uint8_t *srcData, uint8_t *encData, uint8_t len_ui8)
+/*
+ * srcData: source data to be encrypted.
+ * encData: holder to stored encrypted data.
+ * len_Dat: length of enc Data.
+ */                                           
+static int chacha20Encryption(uint8_t *srcData, uint8_t *encData, uint8_t lenEncDataui8)
 {
 	psa_cipher_operation_t handle = psa_cipher_operation_init();
 	psa_cipher_operation_t handle_dec = psa_cipher_operation_init();
@@ -43,7 +47,7 @@ static int chacha20Encryption(uint8_t *srcData, uint8_t *encData, uint8_t len_ui
 	/* Variables required during multipart update */
 	size_t outputLen = 0;
 	size_t total_outputLen = 0;
-	int comp_result;
+	// int comp_result;
 	int ret = APP_ERROR;
 
 	/* Setup the key policy */
@@ -53,7 +57,7 @@ static int chacha20Encryption(uint8_t *srcData, uint8_t *encData, uint8_t len_ui
 	psa_set_key_type(&key_attributes, PSA_KEY_TYPE_CHACHA20);
 	psa_set_key_bits(&key_attributes, 256);
 
-	/* Set the Key */
+	/* Load the predefined Key */
 	status = psa_import_key(&key_attributes, chachaKey_aui8, sizeof(chachaKey_aui8), &key_handle);
 	
 	if (status != PSA_SUCCESS)
@@ -76,14 +80,9 @@ static int chacha20Encryption(uint8_t *srcData, uint8_t *encData, uint8_t len_ui
 	}
 
 	/* Encrypt one chunk of information */
-	status = psa_cipher_update(&handle, srcData, len_ui8, encData, 
-								len_ui8 - total_outputLen, &outputLen);
-	if (status != PSA_SUCCESS)
-	{
-		goto abort;
-	}
-
-	if (outputLen != len_ui8)
+	status = psa_cipher_update(&handle, srcData, lenEncDataui8, encData, 
+								lenEncDataui8 - total_outputLen, &outputLen);
+	if ((status != PSA_SUCCESS) || (outputLen != lenEncDataui8))
 	{
 		goto abort;
 	}
@@ -92,14 +91,9 @@ static int chacha20Encryption(uint8_t *srcData, uint8_t *encData, uint8_t len_ui
 
 	/* Finalise the cipher operation */
 	status = psa_cipher_finish(&handle, &encData,
-							   len_ui8 - total_outputLen, &outputLen);
+							   lenEncDataui8 - total_outputLen, &outputLen);
 
-	if (status != PSA_SUCCESS)
-	{
-		goto abort;
-	}
-
-	if (outputLen != 0)
+	if ((status != PSA_SUCCESS) || (outputLen != 0))
 	{
 		goto abort;
 	}
@@ -136,26 +130,27 @@ destroy_key:
  *	pEndData_ui8: 6 + 2 + 3 = 11 bytes
  */
 
-static uint8_t plainData_aui8[37];
-static uint8_t decData_aui8[37];
-int encrSerialNo_Random(uint8_t* pSerNo_ui8, uint8_t sizeSer_ui8, uint8_t* pEncData_ui8, uint8_t sizeTxData_ui8)
+/*
+ * TxData = Payload + 3 bytes nonce + 4 bytes  CRC
+*/
+int encryptAdvertising(struct stihlAdvData_st* pDst_st, struct stihlAdvData_st* pSrc_st)
 {
-
     int status = -1;
 	uint16_t seed_ui16 = 0x1234;
-    uint8_t lenEncData_ui8 = sizeSer_ui8 + LEN_CRC;
+	uint8_t randNonce_aui8[LEN_RANDOM];
+    // uint8_t lenEncData_ui8 = sizeSer_ui8 + LEN_CRC;
 #ifdef CHECK_16
 	uint16_t crcSer_ui16 = 0xFFFF;
 #else
-	uint32_t crcSer_ui32 = 0xFFffffFF;
+	uint32_t crcSer_ui32 = 0xFFFFFFFF;
 #endif
 
-	uint8_t randNonce_aui8[LEN_RANDOM];
+	// uint8_t plainData_aui8[sizeTxData_ui8];
 
-	if(sizeTxData_ui8 == (lenEncData_ui8 + LEN_RANDOM))
-	{
-		/* compute CRC16 */
-		
+	// if(sizeTxData_ui8 == (lenEncData_ui8 + LEN_RANDOM))
+	// {
+		/* compute CRC16 of payload */
+		pDst_st->
 	#ifdef CHECK_16
 		crcSer_ui16 = crc16_itu_t(seed_ui16, pSerNo_ui8, sizeSer_ui8);
 		memcpy(plainData_aui8, pSerNo_ui8, sizeSer_ui8);
@@ -163,19 +158,21 @@ int encrSerialNo_Random(uint8_t* pSerNo_ui8, uint8_t sizeSer_ui8, uint8_t* pEncD
 		plainData_aui8[sizeSer_ui8+1] = (uint8_t)(crcSer_ui16);
 	#else
 		crcSer_ui32 = crc32_ieee (pSerNo_ui8, sizeSer_ui8);
+		/* Step 1: add CRC32 to payload. */
 		memcpy(plainData_aui8, pSerNo_ui8, sizeSer_ui8);
 		plainData_aui8[sizeSer_ui8] = (uint8_t)(crcSer_ui32 >> 24);
 		plainData_aui8[sizeSer_ui8+1] = (uint8_t)(crcSer_ui32 >> 16);
 		plainData_aui8[sizeSer_ui8+2] = (uint8_t)(crcSer_ui32 >> 8);
 		plainData_aui8[sizeSer_ui8+3] = (uint8_t)(crcSer_ui32);
 	#endif
-		/* create 3 random for Nonce. */
+		/* Step 2: create 3 bytes random nonce and add it to nounce. */
+		/* sys_rand_get needs crapto engin. */
 		sys_rand_get(randNonce_aui8, LEN_RANDOM);
 		memcpy(&chachaNonce_aui8[LEN_NONCE - LEN_RANDOM], randNonce_aui8, LEN_RANDOM);
 
-		/* encrypt data */
+		/* Step 3: encrypt data */
 		status = chacha20Encryption(plainData_aui8, pEncData_ui8, lenEncData_ui8);
-		// status = APP_SUCCESS;
+		/* Step 4*/
 		memcpy(&pEncData_ui8[lenEncData_ui8], randNonce_aui8, LEN_RANDOM);
 	}
 	
@@ -183,6 +180,7 @@ int encrSerialNo_Random(uint8_t* pSerNo_ui8, uint8_t sizeSer_ui8, uint8_t* pEncD
 }
 
 
+static uint8_t decData_aui8[135];
 int decrSerialNo_Random(uint8_t* rxData_aui8, uint8_t sizeRxD_ui8, uint8_t* newSerNr_aui8, uint8_t sizeSer_ui8)
 {
     int status = -1;
@@ -195,7 +193,7 @@ int decrSerialNo_Random(uint8_t* rxData_aui8, uint8_t sizeRxD_ui8, uint8_t* newS
 	uint16_t crcSer_ui16 = 0xFFFF;
 #else
 	uint16_t newCrc32_ui32 = 0xFFFFFFFF;
-	uint32_t crcSer_ui32 = 0xFFffffFF;
+	uint32_t crcSer_ui32 = 0xFFFFFFFF;
 #endif
 
     if(sizeRxD_ui8 == (lenEncData_ui8 + LEN_RANDOM))   // 11 bytes at least.
