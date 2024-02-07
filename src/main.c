@@ -29,14 +29,23 @@
 
 LOG_MODULE_REGISTER(chacha20, LOG_LEVEL_DBG);
 
-// static uint8_t serNr_aui8[LEN_SERIAL_NO] = {0};
-// {0x00, 0x01, 0x02, 0x03, 0x04, 0x05 , 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 
-//  											0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F};
-struct stihlAdvData_st inputData_st = { .protocolID_ui8 = 0x06, .productID_ui16 = 0x05, .crc32_ui32 = 0xAABBCCDD, .randomNonce = 0xEEFF00};
-struct stihlAdvData_st encryptedData_st = { .protocolID_ui8 = 0x06, .productID_ui16 = 0x05, .crc32_ui32 = 0xAABBCCDD, .randomNonce = 0xEEFF00};
+static uint8_t exservData_aui8[LEN_SERVDATA] = {1,2,3,4,5,6,7,8,9,0, \
+												1,2,3,4,5,6,7,8,9,0, \
+												1,2,3,4,5,6,7,8,9,0, \
+												1,2,3,4,5,6,7,8,9,0, \
+												1,2,3,4,5,6,7,8,9,0, \
+												1,2,3,4,5,6,7,8,9,0, \
+												1,2,3,4,5,6,7,8,9,0, \
+												1,2,3,4,5,6,7,8,9,0, \
+												1,2,3,4,5};
+static struct stihlAdvData_st inputData_st = { .protocolID_ui8 = PROTOCOL_ID, .modelID_ui16 = MODEL_ID, .plainText_st.lenSD_ui8 = LEN_SERVDATA, .plainText_st.crc32_ui32 = 0xFFFFFFFF, .randomNonce_aui8 = {0}};
+
+static struct stihlAdvData_st outputData_st = { .protocolID_ui8 = PROTOCOL_ID, .modelID_ui16 = MODEL_ID, .plainText_st.lenSD_ui8 = LEN_SERVDATA,.plainText_st.crc32_ui32 = 0xFFFFFFFF, .randomNonce_aui8 = {0}};
+
+static struct stihlAdvData_st decData_st;
 
 // static uint8_t encData_aui8[LEN_TX_DATA] = {0};
-static uint8_t decryptedData_aui8[LEN_ENCRYPTED] = {0};
+// static uint8_t decryptedData_aui8[LEN_ENCRYPTED] = {0};
 
 /* If you want to encrypte data segmentized. */
 
@@ -66,7 +75,8 @@ int main(void)
 	uint32_t tDiffDec_i64 = 0;
 	uint32_t ind = 0;
 	int status;
-	uint8_t newSerNr_aui8[LEN_SERIAL_NO] = {0};
+	memcpy(inputData_st.plainText_st.servData_aui8, exservData_aui8, LEN_SERVDATA);
+	// uint8_t newSerNr_aui8[LEN_SERIAL_NO] = {0};
 	status = crypto_init();
 	if (status != APP_SUCCESS)
 	{
@@ -76,11 +86,13 @@ int main(void)
 	while(1)
 	{
 		ind = 0;
+
+		k_sleep(K_MSEC(10000));
 		time_usi64[0] = k_uptime_get_32();
 
 		while(ind < 1)
 		{
-			status = encryptAdvertising(&encryptedData_st, &inputData_st);
+			status = encryptAdvertising(&outputData_st, &inputData_st);
 			if (status != APP_SUCCESS)
 			{
 				printk("error \n");
@@ -90,12 +102,11 @@ int main(void)
 		}
 		time_usi64[1] = k_uptime_get_32();
 
-		k_sleep(K_MSEC(1000));
 		ind = 0;
 		time_usi64[2] = k_uptime_get_32();
-		while(ind < 1000)
+		while(ind < 1)
 		{
-			status = decrSerialNo_Random(encData_aui8, LEN_TX_DATA, newSerNr_aui8, LEN_SERIAL_NO);
+			status = decryptAdvertising(&(decData_st.plainText_st), &(outputData_st.plainText_st), LEN_PAYLOAD);
 			if (status != APP_SUCCESS)
 			{
 				printk("error \n");
@@ -107,20 +118,25 @@ int main(void)
 
 		tDiffEnc_i64 = time_usi64[1] - time_usi64[0];
 		tDiffDec_i64 = time_usi64[3] - time_usi64[2];
-		// LOG_HEXDUMP_INF(p_text, len, "Content:");
-		printk(" ------------------------------------------------------------------------------------------------------------------\n");
-		// LOG_HEXDUMP_INF(serNr_aui8, LEN_SERIAL_NO, "Payload (32bytes) ");
-		// LOG_HEXDUMP_INF(encData_aui8, LEN_TX_DATA, "encrypted(payload+CRC32) + rnadom nonce(3bytes)");
-		// LOG_HEXDUMP_INF(newSerNr_aui8, sizeof(newSerNr_aui8), "descrypted payload");
-		// printk("\n");
-		printk("20 *  encrypting of %d bytes : %d ms for 1000* encryption\n", LEN_SERIAL_NO, tDiffEnc_i64);
-		printk("20 *  decrypting of %d bytes : %d ms for 1000* decryption\n", LEN_SERIAL_NO, tDiffDec_i64);
-
-		printk("jj \n");
-		printk("ss \n");
 		
-	}
+		printk("\n in protocol : %x", inputData_st.protocolID_ui8);
+		printk("\n in prod : %x", inputData_st.modelID_ui16);
+		LOG_HEXDUMP_INF(&(inputData_st), LEN_ADVERTISING, "payload");
+		printk("\n in crc : %x", inputData_st.plainText_st.crc32_ui32);
+
+		LOG_HEXDUMP_INF(inputData_st.randomNonce_aui8, LEN_RANDOM, "in random");
+		
+		printk("\n out protocol : %x", outputData_st.protocolID_ui8);
+		printk("\n out prod : %x", outputData_st.modelID_ui16);
+		LOG_HEXDUMP_INF(&(outputData_st), LEN_ADVERTISING, "payload");
+		printk("\n out crc : %x", outputData_st.plainText_st.crc32_ui32);
+
+		LOG_HEXDUMP_INF(outputData_st.randomNonce_aui8, LEN_RANDOM, "out random");
+
+
+		printk("------------------------------------------");
 	// LOG_INF("Chacha example completed successfully.");
+	}
 
 	return APP_SUCCESS;
 }
