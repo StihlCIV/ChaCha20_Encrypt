@@ -160,7 +160,7 @@ int encryptAdvertising(struct stihlAdvData_st* pDst_st, struct stihlAdvData_st* 
  */
 int decryptAdvertising(struct payLoad_st* pDecPayLoad_st, struct stihlAdvData_st* pEncAdvData_st, uint8_t lenPayload_ui8)
 {
-    int status = -1;
+    int status = PSA_SUCCESS;
 	uint32_t newCrc32_ui32 = 0xFFFFFFFF;
 
 	/* Step 1: Get 3 bytes nonce from encData */
@@ -172,10 +172,10 @@ int decryptAdvertising(struct payLoad_st* pDecPayLoad_st, struct stihlAdvData_st
 	/* Step 3: Calculate CRC32 */
 	newCrc32_ui32 = crc32_ieee(pDecPayLoad_st->servData_aui8, LEN_SERVDATA);
 
-	if((newCrc32_ui32 == pDecPayLoad_st->crc32_ui32) &&
-	   ((uint8_t) LEN_SERVDATA == pDecPayLoad_st->lenSD_ui8 ))
+	if((newCrc32_ui32 != pDecPayLoad_st->crc32_ui32) ||
+	   ((uint8_t) LEN_SERVDATA != pDecPayLoad_st->lenSD_ui8 ))
 	{
-		status = 0;
+		status = PSA_ERROR_GENERIC_ERROR;
 	}
 
 	return status;
