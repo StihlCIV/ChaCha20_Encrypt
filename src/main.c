@@ -106,7 +106,7 @@ int main(void)
 		time_usi64[2] = k_uptime_get_32();
 		while(ind < 1)
 		{
-			status = decryptAdvertising(&(decData_st.plainText_st), &(outputData_st.plainText_st), LEN_PAYLOAD);
+			status = decryptAdvertising(&(decData_st.plainText_st), &(outputData_st), LEN_PAYLOAD);
 			if (status != APP_SUCCESS)
 			{
 				printk("error \n");

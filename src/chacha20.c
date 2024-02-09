@@ -132,11 +132,10 @@ destroy_key:
 
 /*
  * TxData = Payload + 3 bytes nonce + 4 bytes  CRC
-*/
+ */
 int encryptAdvertising(struct stihlAdvData_st* pDst_st, struct stihlAdvData_st* pSrc_st)
 {
     int status = -1;
-	uint16_t seed_ui16 = 0x1234;
 	
 	/* Step 1: Add CRC32 of service data to payload. */
 	pSrc_st->plainText_st.crc32_ui32 = crc32_ieee(pSrc_st->plainText_st.servData_aui8, LEN_SERVDATA);
@@ -156,53 +155,28 @@ int encryptAdvertising(struct stihlAdvData_st* pDst_st, struct stihlAdvData_st* 
 }
 
 
-static uint8_t decData_aui8[135];
-int decryptAdvertising(struct payLoad_st* pDecData_st, struct payLoad_st* pEncData_st, uint8_t lenPayload_ui8)
+/*
+ * descrypting advertising
+ */
+int decryptAdvertising(struct payLoad_st* pDecPayLoad_st, struct stihlAdvData_st* pEncAdvData_st, uint8_t lenPayload_ui8)
 {
     int status = -1;
-// 	uint16_t seed_ui16 = 0x1234;
-// 	uint8_t randNonce_aui8[LEN_RANDOM];
-//     uint8_t lenEncData_ui8 = LEN_SERIAL_NO + LEN_CRC;
+	uint32_t newCrc32_ui32 = 0xFFFFFFFF;
 
-// #ifdef CHECK_16
-// 	uint16_t newCrc16_ui16 = 0xFFFF;
-// 	uint16_t crcSer_ui16 = 0xFFFF;
-// #else
-// 	uint16_t newCrc32_ui32 = 0xFFFFFFFF;
-// 	uint32_t crcSer_ui32 = 0xFFFFFFFF;
-// #endif
+	/* Step 1: Get 3 bytes nonce from encData */
+	memcpy(&chachaNonce_aui8[LEN_NONCE - LEN_RANDOM], pEncAdvData_st->randomNonce_aui8, LEN_RANDOM);
 
-//     if(sizeRxD_ui8 == (lenEncData_ui8 + LEN_RANDOM))   // 11 bytes at least.
-//     {
-//         /* get 3 bytes nonce from encData */
-//         memcpy(randNonce_aui8, &rxData_aui8[lenEncData_ui8], LEN_RANDOM);
-// 		memcpy(&chachaNonce_aui8[LEN_NONCE - LEN_RANDOM], randNonce_aui8, LEN_RANDOM);
+	/* Step 2: Decrypt data */	
+	status = chacha20Encryption(pDecPayLoad_st, &(pEncAdvData_st->plainText_st), LEN_PAYLOAD);
 
-//         /* encrypt data */
-//         status = chacha20Encryption(rxData_aui8, decData_aui8, lenEncData_ui8);
-        
-// 	#ifdef CHECK_16
-//         memcpy(&crcSer_ui16, &decData_aui8[LEN_SERIAL_NO], LEN_CRC);         
-//         crcSer_ui16 = (uint16_t)(decData_aui8[LEN_SERIAL_NO] << 8);         
-//         crcSer_ui16 += (uint16_t)(decData_aui8[LEN_SERIAL_NO+1]);
-//         newCrc16_ui16 = crc16_itu_t(seed_ui16, decData_aui8, LEN_SERIAL_NO);
+	/* Step 3: Calculate CRC32 */
+	newCrc32_ui32 = crc32_ieee(pDecPayLoad_st->servData_aui8, LEN_SERVDATA);
 
-//         if(newCrc16_ui16 == crcSer_ui16)
-//         {
-// 	#else
-//         memcpy(&crcSer_ui32, &decData_aui8[LEN_SERIAL_NO], LEN_CRC);         
-//         crcSer_ui32 = (uint16_t)(decData_aui8[LEN_SERIAL_NO] << 24);            
-//         crcSer_ui32 += (uint16_t)(decData_aui8[LEN_SERIAL_NO+1] << 16);            
-//         crcSer_ui32 += (uint16_t)(decData_aui8[LEN_SERIAL_NO+2] << 8);         
-//         crcSer_ui32 += (uint16_t)(decData_aui8[LEN_SERIAL_NO+3]);
-// 		newCrc32_ui32 = crc32_ieee (decData_aui8, LEN_SERIAL_NO);
+	if((newCrc32_ui32 == pDecPayLoad_st->crc32_ui32) &&
+	   ((uint8_t) LEN_SERVDATA == pDecPayLoad_st->lenSD_ui8 ))
+	{
+		status = 0;
+	}
 
-//         if(crcSer_ui32 == newCrc32_ui32)
-//         {
-// 	#endif
-//             memcpy(newSerNr_aui8, decData_aui8, LEN_SERIAL_NO);
-//             status = 0;
-//         }
-//     }
 	return status;
 }
