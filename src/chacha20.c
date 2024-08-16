@@ -138,8 +138,10 @@ int encryptAdvertising(struct stihlAdvData_st* pDst_st, struct stihlAdvData_st* 
     int status = -1;
 	
 	/* Step 1: Add CRC32 of service data to payload. */
-	pSrc_st->plainText_st.crc32_ui32 = crc32_ieee(pSrc_st->plainText_st.servData_aui8, LEN_SERVDATA);
-	printk("\ncrc_org: %x", pSrc_st->plainText_st.crc32_ui32 );
+	pSrc_st->plainText_st.crc16_ui16 = crc16_ccitt(0x0000, pSrc_st->plainText_st.servData_aui8, LEN_SERVDATA);
+    // pSrc_st->plainText_st.crc32_ui32 = crc32_ieee(pSrc_st->plainText_st.servData_aui8, LEN_SERVDATA);
+    
+	// printk("\ncrc_org: %x", pSrc_st->plainText_st.crc32_ui32 );
 
 	/* Step 2: Create 3 bytes random nonce and add it to nounce. */
 	/* sys_rand_get needs crapto engin. */
@@ -147,7 +149,7 @@ int encryptAdvertising(struct stihlAdvData_st* pDst_st, struct stihlAdvData_st* 
 	memcpy(pDst_st->randomNonce_aui8, pSrc_st->randomNonce_aui8, LEN_RANDOM);
 	memcpy(&chachaNonce_aui8[LEN_NONCE - LEN_RANDOM], pDst_st->randomNonce_aui8, LEN_RANDOM);
 
-	printk("\nrnadom_org: %x, %x, %x", pDst_st->randomNonce_aui8[0], pDst_st->randomNonce_aui8[1], pDst_st->randomNonce_aui8[2]);
+	// printk("\nrnadom_org: %x, %x, %x", pDst_st->randomNonce_aui8[0], pDst_st->randomNonce_aui8[1], pDst_st->randomNonce_aui8[2]);
 	
 	/* Step 3: encrypt data */
 	status = chacha20Encryption(&(pDst_st->plainText_st), &(pSrc_st->plainText_st), LEN_PAYLOAD);
@@ -161,7 +163,8 @@ int encryptAdvertising(struct stihlAdvData_st* pDst_st, struct stihlAdvData_st* 
 int decryptAdvertising(struct payLoad_st* pDecPayLoad_st, struct stihlAdvData_st* pEncAdvData_st, uint8_t lenPayload_ui8)
 {
     int status = PSA_SUCCESS;
-	uint32_t newCrc32_ui32 = 0xFFFFFFFF;
+	// uint32_t newCrc32_ui32 = 0xFFFFFFFF;
+	uint16_t newCrc16_ui16 = 0xFFFF;
 
 	/* Step 1: Get 3 bytes nonce from encData */
 	memcpy(&chachaNonce_aui8[LEN_NONCE - LEN_RANDOM], pEncAdvData_st->randomNonce_aui8, LEN_RANDOM);
@@ -170,9 +173,9 @@ int decryptAdvertising(struct payLoad_st* pDecPayLoad_st, struct stihlAdvData_st
 	status = chacha20Encryption(pDecPayLoad_st, &(pEncAdvData_st->plainText_st), LEN_PAYLOAD);
 
 	/* Step 3: Calculate CRC32 */
-	newCrc32_ui32 = crc32_ieee(pDecPayLoad_st->servData_aui8, LEN_SERVDATA);
+	newCrc16_ui16 = crc16_ccitt(0x0000, pDecPayLoad_st->servData_aui8, LEN_SERVDATA);
 
-	if((newCrc32_ui32 != pDecPayLoad_st->crc32_ui32) ||
+	if((newCrc16_ui16 != pDecPayLoad_st->crc16_ui16) ||
 	   ((uint8_t) LEN_SERVDATA != pDecPayLoad_st->lenSD_ui8 ))
 	{
 		status = PSA_ERROR_GENERIC_ERROR;
