@@ -36,4 +36,5 @@ struct  __attribute__((packed)) stihlAdvData_st
 extern int encryptAdvertising(struct stihlAdvData_st* pDst_st, struct stihlAdvData_st* pSrc_st);
 
 extern int decryptAdvertising(struct payLoad_st* pDecPayLoad_st, struct stihlAdvData_st* pEncAdvData_st, uint8_t lenPayload_ui8);
+extern  int chacha20Encryption(uint8_t* pDst, uint8_t* pSrc, uint8_t dstLen);
 #endif

@@ -27,14 +27,14 @@ static uint8_t chachaNonce_aui8[LEN_NONCE] = {0x43, 0x82, 0xc3, 0x6b, 0x0a, 0x03
 											  0xEA, 0x00, 0x00, 0x00};
 
 
-static int chacha20Encryption(uint8_t* pDst, uint8_t* pSrc, uint8_t dstLen);
+// static int chacha20Encryption(uint8_t* pDst, uint8_t* pSrc, uint8_t dstLen);
 
 /*
  * srcData: source data to be encrypted.
  * encData: holder to stored encrypted data.
  * len_Dat: length of enc Data.
  */                                           
-static int chacha20Encryption(uint8_t *encData, uint8_t *srcData, uint8_t lenEncDataui8)
+ int chacha20Encryption(uint8_t *encData, uint8_t *srcData, uint8_t lenEncDataui8)
 {
 	psa_cipher_operation_t handle = psa_cipher_operation_init();
 	psa_cipher_operation_t handle_dec = psa_cipher_operation_init();
@@ -152,7 +152,7 @@ int encryptAdvertising(struct stihlAdvData_st* pDst_st, struct stihlAdvData_st* 
 	// printk("\nrnadom_org: %x, %x, %x", pDst_st->randomNonce_aui8[0], pDst_st->randomNonce_aui8[1], pDst_st->randomNonce_aui8[2]);
 	
 	/* Step 3: encrypt data */
-	status = chacha20Encryption(&(pDst_st->plainText_st), &(pSrc_st->plainText_st), LEN_PAYLOAD);
+	// status = chacha20Encryption(&(pDst_st->plainText_st), &(pSrc_st->plainText_st), LEN_PAYLOAD);
 	return status;
 }
 
