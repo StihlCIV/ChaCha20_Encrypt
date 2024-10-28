@@ -29,10 +29,14 @@
 
 LOG_MODULE_REGISTER(chacha20, LOG_LEVEL_DBG);
 
-static uint8_t inData[32] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,\
-                                      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-static uint8_t outData[32];
-static uint8_t decData[32];
+static uint8_t inData[55] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,\
+                             10, 11, 12, 13, 14, 15, 16, 17, 18, 19,\
+                             20, 21, 22, 23, 24, 25, 26, 27, 28, 29,\
+                             30, 31, 32, 33, 34, 35, 36, 37, 38, 39,\
+                             40, 41, 42, 43, 44, 45, 46, 47, 48, 49,\
+                             50, 51, 52, 53, 54};
+static uint8_t outData[55];
+static uint8_t decData[55];
 /* The initial counter of the Chacha20 RFC7539 test vectors is 1, while the PSA
  * APIs assume it to be zero. This means that this expected ciphertext is not
  * the same as the one presented in the RFC
@@ -70,14 +74,14 @@ int main(void)
 	
 	while(1)
 	{
-        chacha20Encryption(outData, inData, 32);
-		LOG_HEXDUMP_INF(inData, LEN_ADVERTISING, "original data");
-		LOG_HEXDUMP_INF(outData, LEN_ADVERTISING, "encrypted data");
+        chacha20Encryption(outData, inData, 55);
+		LOG_HEXDUMP_INF(inData, 42, "original data");
+		LOG_HEXDUMP_INF(outData, 42, "encrypted data");
 		k_sleep(K_MSEC(2000));
 
-        chacha20Encryption(decData, outData, 32);
-		LOG_HEXDUMP_INF(decData, LEN_ADVERTISING, "decrypted data");
-		k_sleep(K_MSEC(2000));
+        chacha20Encryption(decData, outData, 42);
+		LOG_HEXDUMP_INF(decData, 42, "decrypted data");
+		k_sleep(K_MSEC(5000));
 	}
 
 	return APP_SUCCESS;

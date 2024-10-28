@@ -46,7 +46,6 @@ static uint8_t chachaNonce_aui8[LEN_NONCE] = {0x43, 0x82, 0xc3, 0x6b, 0x0a, 0x03
 
 	/* Variables required during multipart update */
 	size_t outputLen = 0;
-	size_t total_outputLen = 0;
 	// int comp_result;
 	int ret = APP_ERROR;
 
@@ -81,26 +80,21 @@ static uint8_t chachaNonce_aui8[LEN_NONCE] = {0x43, 0x82, 0xc3, 0x6b, 0x0a, 0x03
 
 	/* Encrypt one chunk of information */
 	status = psa_cipher_update(&handle, srcData, lenEncDataui8, encData, 
-								lenEncDataui8 - total_outputLen, &outputLen);
+								lenEncDataui8, &outputLen);
+                                
 	if ((status != PSA_SUCCESS) || (outputLen != lenEncDataui8))
 	{
 		goto abort;
 	}
 
-	total_outputLen += outputLen;
-
 	/* Finalise the cipher operation */
-	status = psa_cipher_finish(&handle, &encData,
-							   lenEncDataui8 - total_outputLen, &outputLen);
+	status = psa_cipher_finish(&handle, &encData, 0 , &outputLen);
 
 	if ((status != PSA_SUCCESS) || (outputLen != 0))
 	{
 		goto abort;
 	}
-
-	/* Add the last output produced, it might be encrypted padding */
-	total_outputLen += outputLen;
-
+    
 	ret = APP_SUCCESS;
 
 	/* Go directly to the destroy_key label at this point */
